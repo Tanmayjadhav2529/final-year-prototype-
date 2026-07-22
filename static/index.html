@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>METALSENSE Industrial Inspection System</title>
+    <!-- Google Fonts: Oswald, Roboto & Share Tech Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;700&family=Roboto:wght@300;400;500;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+    <!-- FontAwesome for Premium Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Stylesheet -->
+    <link rel="stylesheet" href="/static/styles.css?v=2">
+    <!-- Chart.js for High-Quality Analytics Charts -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Shared Header & Navigation Bar -->
+        <header class="dashboard-header">
+            <div class="brand">
+                <i class="fa-solid fa-microscope logo-icon"></i>
+                <div class="brand-text">
+                    <h1 class="font-display">METALSENSE</h1>
+                    <span class="sub-title">Surface Inspection System</span>
+                </div>
+            </div>
+            
+            <!-- Screen Switcher Tabs (2-Screen Structure) -->
+            <nav class="screen-switcher">
+                <button class="nav-btn active" data-page="page-live">
+                    <i class="fa-solid fa-crosshairs"></i> LIVE FEED
+                </button>
+                <button class="nav-btn" data-page="page-analysis">
+                    <i class="fa-solid fa-chart-line"></i> ANALYSIS
+                </button>
+            </nav>
+            
+            <!-- Connection & Loop Status Indicators -->
+            <div class="system-status-indicators">
+                <div class="status-badge" id="status-inspection">
+                    <span class="badge-label">Inspection: IDLE</span>
+                </div>
+                <div class="status-badge" id="status-mongodb">
+                    <span class="badge-label">Database: OFFLINE</span>
+                </div>
+                <div class="status-badge" id="status-mqtt">
+                    <span class="badge-label">MQTT Broker: OFFLINE</span>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content Area -->
+        <main class="dashboard-main-content">
+            
+            <!-- Screen 1: Live Feed View -->
+            <div id="page-live" class="page-container active">
+                <div class="live-screen-layout">
+                    <!-- Monitor Scope Bezel Panel -->
+                    <div class="monitor-panel">
+                        <div class="monitor-bezel">
+                            <div class="monitor-screen-header">
+                                <span class="scope-text font-tech"><i class="fa-solid fa-circle fa-pulse scan-indicator"></i> SCANNING: LINE_A</span>
+                                <span class="scope-text font-tech">MODEL: YOLOv8n</span>
+                                <span class="scope-text font-tech" id="scope-status">STATUS: STANDBY</span>
+                            </div>
+                            <div class="feed-view-container">
+                                <img id="live-feed" src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' viewBox='0 0 640 480'><rect width='100%' height='100%' fill='%231b1d21'/><text x='50%' y='50%' font-family='monospace' font-size='16' fill='%238a8d92' text-anchor='middle'>FEED READY - START SYSTEM</text></svg>" alt="Live Inspection Feed">
+                                <!-- Scanline effect overlay -->
+                                <div class="scanlines-overlay"></div>
+                            </div>
+                            <div class="monitor-screen-footer">
+                                <span class="scope-text font-tech">SCALE: 1.0X</span>
+                                <span class="scope-text font-tech">FPS: 10.0</span>
+                                <span class="scope-text font-tech">FOCAL: AUTO</span>
+                            </div>
+                        </div>
+                        <!-- Controls Bar -->
+                        <div class="inspection-controls">
+                            <button id="btn-start" class="btn btn-success"><i class="fa-solid fa-play"></i> START SYSTEM</button>
+                            <button id="btn-stop" class="btn btn-danger" disabled><i class="fa-solid fa-stop"></i> STOP SYSTEM</button>
+                            <input type="file" id="upload-input" accept="image/*" style="display: none;">
+                            <button id="btn-upload" class="btn btn-primary"><i class="fa-solid fa-upload"></i> MANUAL INGEST</button>
+                            <div class="demo-tag" style="margin-left: auto;">DEMO MODE ACTIVE</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Glanceable Operator Status Panel -->
+                    <div class="operator-status-strip">
+                        <!-- Total Quantity (Clean counter) -->
+                        <div class="operator-card total">
+                            <span class="op-label font-tech">TOTAL INSPECTED</span>
+                            <span id="metric-total" class="op-value font-tech tabular-nums">0</span>
+                        </div>
+                        
+                        <!-- Rotated PASS Badge Counter -->
+                        <div class="operator-card pass">
+                            <span class="op-label font-tech">PASSED (GOOD)</span>
+                            <span class="stamp stamp-pass"><span id="metric-passed" class="tabular-nums">0</span> ITEMS</span>
+                        </div>
+    
+                        <!-- Rotated FAIL Badge Counter -->
+                        <div class="operator-card fail">
+                            <span class="op-label font-tech">FAILED (DEFECT)</span>
+                            <span class="stamp stamp-fail"><span id="metric-failed" class="tabular-nums">0</span> ITEMS</span>
+                        </div>
+    
+                        <!-- SVG Defect Ratio Circular Gauge -->
+                        <div class="operator-card ratio-gauge">
+                            <span class="op-label font-tech">DEFECT RATIO</span>
+                            <div class="circular-gauge-container">
+                                <svg width="100" height="80" viewBox="0 0 100 80" class="ratio-svg">
+                                    <!-- Background Track Arc -->
+                                    <path class="gauge-track" d="M15 65 A 35 35 0 1 1 85 65" fill="none" stroke="#2b2d31" stroke-width="8" stroke-linecap="round"/>
+                                    <!-- Foreground Value Arc -->
+                                    <path id="gauge-fill" class="gauge-fill" d="M15 65 A 35 35 0 1 1 85 65" fill="none" stroke="#d85a30" stroke-width="8" stroke-linecap="round" stroke-dasharray="165" stroke-dashoffset="165"/>
+                                </svg>
+                                <div class="gauge-value font-tech tabular-nums" id="metric-rate">0.0%</div>
+                            </div>
+                        </div>
+                        
+                        <!-- Compact Defect Breakdown list for live operator -->
+                        <div class="card glass-card compact-breakdown-card" style="padding: 0.5rem 0.75rem;">
+                            <div class="card-header" style="padding: 0.25rem 0.5rem; background: transparent; border-bottom: none;">
+                                <h2 style="font-size: 0.75rem;"><i class="fa-solid fa-list-check"></i> LIVE DEFECTS</h2>
+                            </div>
+                            <div class="defect-breakdown-container" style="padding: 0.25rem 0.5rem; gap: 0.4rem;">
+                                <div class="defect-progress-item">
+                                    <div class="defect-label-row font-tech" style="font-size: 0.65rem;">
+                                        <span>SCRATCH</span>
+                                        <span id="live-breakdown-scratch">0</span>
+                                    </div>
+                                </div>
+                                <div class="defect-progress-item">
+                                    <div class="defect-label-row font-tech" style="font-size: 0.65rem;">
+                                        <span>DENT</span>
+                                        <span id="live-breakdown-dent">0</span>
+                                    </div>
+                                </div>
+                                <div class="defect-progress-item">
+                                    <div class="defect-label-row font-tech" style="font-size: 0.65rem;">
+                                        <span>CRACK</span>
+                                        <span id="live-breakdown-crack">0</span>
+                                    </div>
+                                </div>
+                                <div class="defect-progress-item">
+                                    <div class="defect-label-row font-tech" style="font-size: 0.65rem;">
+                                        <span>PINHOLE</span>
+                                        <span id="live-breakdown-pinhole">0</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Screen 2: Analysis & Integrated History View -->
+            <div id="page-analysis" class="page-container">
+                <div class="analysis-screen-layout">
+                    <!-- Defect Distribution Card -->
+                    <div class="card glass-card instrument-card">
+                        <div class="card-header">
+                            <h2><i class="fa-solid fa-chart-pie header-icon"></i> DEFECT DISTRIBUTION BREAKDOWN</h2>
+                        </div>
+                        <div class="defect-breakdown-container">
+                            <div class="defect-progress-item">
+                                <div class="defect-label-row font-tech">
+                                    <span>SCRATCH</span>
+                                    <span id="breakdown-scratch-val">0 (0%)</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div id="breakdown-scratch-bar" class="progress-bar-fill scratch" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="defect-progress-item">
+                                <div class="defect-label-row font-tech">
+                                    <span>DENT</span>
+                                    <span id="breakdown-dent-val">0 (0%)</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div id="breakdown-dent-bar" class="progress-bar-fill dent" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="defect-progress-item">
+                                <div class="defect-label-row font-tech">
+                                    <span>CRACK</span>
+                                    <span id="breakdown-crack-val">0 (0%)</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div id="breakdown-crack-bar" class="progress-bar-fill crack" style="width: 0%"></div>
+                                </div>
+                            </div>
+                            <div class="defect-progress-item">
+                                <div class="defect-label-row font-tech">
+                                    <span>PINHOLE</span>
+                                    <span id="breakdown-pinhole-val">0 (0%)</span>
+                                </div>
+                                <div class="progress-bar-bg">
+                                    <div id="breakdown-pinhole-bar" class="progress-bar-fill pinhole" style="width: 0%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Trend Chart Card -->
+                    <div class="card glass-card instrument-card">
+                        <div class="card-header">
+                            <h2><i class="fa-solid fa-chart-line header-icon"></i> DEFECT RUN TRENDS</h2>
+                        </div>
+                        <div class="chart-canvas-wrapper">
+                            <canvas id="trendChart"></canvas>
+                        </div>
+                    </div>
+                    
+                    <!-- Integrated Log database list -->
+                    <div class="card glass-card history-card history-section-embedded">
+                        <div class="card-header history-header-wrapper">
+                            <div class="history-title-row">
+                                <h2><i class="fa-solid fa-clock-rotate-left header-icon"></i> HISTORICAL INSPECTION LOGS</h2>
+                                <div class="history-tabs">
+                                    <button class="tab-btn active" data-source="live_camera">LIVE CAMERA</button>
+                                    <button class="tab-btn" data-source="manual_upload">MANUAL UPLOADS</button>
+                                </div>
+                            </div>
+                            
+                            <!-- Search & Filter Controls -->
+                            <div class="filter-controls">
+                                <div class="filter-group">
+                                    <label for="filter-status" class="font-tech">STATUS</label>
+                                    <select id="filter-status">
+                                        <option value="">ALL RECORDS</option>
+                                        <option value="PASS">PASS ONLY</option>
+                                        <option value="FAIL">FAIL ONLY</option>
+                                    </select>
+                                </div>
+                                <div class="filter-group">
+                                    <label for="filter-defect" class="font-tech">DEFECT TYPE</label>
+                                    <select id="filter-defect">
+                                        <option value="">ALL DEFECTS</option>
+                                        <option value="Scratch">SCRATCH</option>
+                                        <option value="Dent">DENT</option>
+                                        <option value="Crack">CRACK</option>
+                                        <option value="Pinhole">PINHOLE</option>
+                                    </select>
+                                </div>
+                                <button id="btn-apply-filters" class="btn btn-primary"><i class="fa-solid fa-filter"></i> APPLY FILTERS</button>
+                            </div>
+                        </div>
+                        
+                        <div class="table-scroll-container">
+                            <table class="history-table">
+                                <thead>
+                                    <tr>
+                                        <th class="font-tech">TIME</th>
+                                        <th class="font-tech">SOURCE</th>
+                                        <th class="font-tech">DEFECT</th>
+                                        <th class="font-tech">RESULT</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="history-table-body">
+                                    <tr>
+                                        <td colspan="4" class="placeholder-row">No history records loaded. Run the continuous scan loop to ingest.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal for Manual Inspection Result -->
+    <div id="upload-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-square-poll-horizontal"></i> MANUAL RESULT STAMP</h2>
+                <button id="modal-close" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="modal-image-wrapper">
+                    <img id="modal-image" src="" alt="Manual Inspection Result">
+                </div>
+                <div class="modal-details">
+                    <div class="result-row">
+                        <span class="metric-label font-tech">INSPECTION STAMP</span>
+                        <span id="modal-status-badge" class="stamp">PASS</span>
+                    </div>
+                    <div class="result-row">
+                        <span class="metric-label font-tech">PRODUCT SERIAL ID</span>
+                        <span id="modal-product-id" class="font-tech font-bold font-bright">PRD-XXXX</span>
+                    </div>
+                    <div class="result-row defects-container">
+                        <span class="metric-label font-tech">DETECTED SIGNS</span>
+                        <ul id="modal-defects-list">
+                            <li>None</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Entrypoint -->
+    <script src="/static/app.js?v=2"></script>
+</body>
+</html>
