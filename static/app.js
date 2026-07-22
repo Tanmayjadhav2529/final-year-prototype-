@@ -1,0 +1,560 @@
+// Constants & State
+let ws = null;
+let reconnectInterval = 1000;
+let maxReconnectInterval = 30000;
+let trendChart = null;
+let currentHistorySource = "live_camera";
+
+// Cumulative counts for Trend Charting
+let chartLabels = [];
+let chartPassData = [];
+let chartFailData = [];
+const maxChartPoints = 15;
+
+document.addEventListener("DOMContentLoaded", () => {
+    initApp();
+});
+
+function initApp() {
+    setupTrendChart();
+    registerEventHandlers();
+    fetchSystemStatus();
+    fetchAnalyticsSummary();
+    fetchHistory();
+    connectWebSocket();
+}
+
+// 1. Connection Status Badges Update
+function updateStatusBadge(badgeId, isOnline, textPrefix) {
+    const badge = document.getElementById(badgeId);
+    if (!badge) return;
+    
+    const label = badge.querySelector(".badge-label");
+    if (!label) return;
+    
+    // Toggle online/offline classes per approved design guide
+    if (isOnline) {
+        badge.classList.remove("offline");
+        badge.classList.add("online");
+        label.textContent = `${textPrefix}: CONNECTED`;
+        if (badgeId === "status-inspection") {
+            label.textContent = `${textPrefix}: RUNNING`;
+            // Update scope status indicator in video bezel
+            const scopeStatus = document.getElementById("scope-status");
+            if (scopeStatus) {
+                scopeStatus.textContent = "STATUS: ACTIVE";
+                scopeStatus.style.color = "var(--color-pass-stamp-text)";
+            }
+        }
+    } else {
+        badge.classList.remove("online");
+        badge.classList.add("offline");
+        label.textContent = `${textPrefix}: OFFLINE`;
+        if (badgeId === "status-inspection") {
+            label.textContent = `${textPrefix}: IDLE`;
+            // Update scope status indicator in video bezel
+            const scopeStatus = document.getElementById("scope-status");
+            if (scopeStatus) {
+                scopeStatus.textContent = "STATUS: STANDBY";
+                scopeStatus.style.color = "var(--color-text-secondary)";
+            }
+        }
+    }
+}
+
+// 2. HTTP Requests & Controls
+async function fetchSystemStatus() {
+    try {
+        const response = await fetch("/inspection/status");
+        const data = await response.json();
+        
+        // Update badges
+        updateStatusBadge("status-inspection", data.running, "Inspection");
+        updateStatusBadge("status-mongodb", data.mongodb_connected, "Database");
+        updateStatusBadge("status-mqtt", data.mqtt_connected, "MQTT Broker");
+        
+        // Update button states
+        const btnStart = document.getElementById("btn-start");
+        const btnStop = document.getElementById("btn-stop");
+        btnStart.disabled = data.running;
+        btnStop.disabled = !data.running;
+    } catch (e) {
+        console.error("Error fetching system status:", e);
+    }
+}
+
+async function fetchAnalyticsSummary() {
+    try {
+        const response = await fetch(`/analytics/summary?source=${currentHistorySource}`);
+        const data = await response.json();
+        updateMetricCards(data);
+        updateDefectBreakdown(data.defect_counts, data.failed);
+    } catch (e) {
+        console.error("Error fetching analytics:", e);
+    }
+}
+
+async function fetchHistory() {
+    const statusFilter = document.getElementById("filter-status").value;
+    const defectFilter = document.getElementById("filter-defect").value;
+    
+    let url = `/history?source=${currentHistorySource}`;
+    if (statusFilter) url += `&status=${statusFilter}`;
+    if (defectFilter) url += `&defect_type=${defectFilter}`;
+    
+    try {
+        const response = await fetch(url);
+        const historyData = await response.json();
+        renderHistoryTable(historyData);
+    } catch (e) {
+        console.error("Error fetching history:", e);
+    }
+}
+
+async function startInspection() {
+    try {
+        const response = await fetch("/inspection/start", { method: "POST" });
+        const data = await response.json();
+        if (data.status === "started" || data.status === "already_running") {
+            document.getElementById("btn-start").disabled = true;
+            document.getElementById("btn-stop").disabled = false;
+            updateStatusBadge("status-inspection", true, "Inspection");
+        }
+    } catch (e) {
+        console.error("Error starting inspection:", e);
+    }
+}
+
+async function stopInspection() {
+    try {
+        const response = await fetch("/inspection/stop", { method: "POST" });
+        const data = await response.json();
+        if (data.status === "stopped" || data.status === "already_stopped") {
+            document.getElementById("btn-start").disabled = false;
+            document.getElementById("btn-stop").disabled = true;
+            updateStatusBadge("status-inspection", false, "Inspection");
+        }
+    } catch (e) {
+        console.error("Error stopping inspection:", e);
+    }
+}
+
+// 3. UI Content Renders
+function updateMetricCards(data) {
+    document.getElementById("metric-total").textContent = data.total || 0;
+    document.getElementById("metric-passed").textContent = data.passed || 0;
+    document.getElementById("metric-failed").textContent = data.failed || 0;
+    
+    // Update SVG Circular Gauge
+    const rateVal = data.defect_rate || 0.0;
+    document.getElementById("metric-rate").textContent = `${rateVal}%`;
+    
+    const gaugeFill = document.getElementById("gauge-fill");
+    if (gaugeFill) {
+        const pathLength = 165;
+        const offset = pathLength - (parseFloat(rateVal) / 100) * pathLength;
+        gaugeFill.style.strokeDashoffset = offset;
+    }
+}
+
+function updateDefectBreakdown(defectCounts, totalFailed) {
+    const categories = ["Scratch", "Dent", "Crack", "Pinhole"];
+    categories.forEach(cat => {
+        const count = defectCounts[cat] || 0;
+        const percent = totalFailed > 0 ? Math.round((count / totalFailed) * 100) : 0;
+        
+        // Update label text in page-analysis
+        document.getElementById(`breakdown-${cat.toLowerCase()}-val`).textContent = `${count} (${percent}%)`;
+        // Update progress bar width in page-analysis
+        document.getElementById(`breakdown-${cat.toLowerCase()}-bar`).style.width = `${percent}%`;
+        
+        // Update compact list in page-live
+        const liveCountElement = document.getElementById(`live-breakdown-${cat.toLowerCase()}`);
+        if (liveCountElement) {
+            liveCountElement.textContent = count;
+        }
+    });
+}
+
+function renderHistoryTable(records) {
+    const tbody = document.getElementById("history-table-body");
+    tbody.innerHTML = "";
+    
+    if (!records || records.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="4" class="placeholder-row font-tech">NO MATCHING RECORDS IN STORAGE ENGINE.</td></tr>`;
+        return;
+    }
+    
+    records.forEach(rec => {
+        const row = document.createElement("tr");
+        
+        // Format timestamp
+        const time = new Date(rec.timestamp).toLocaleTimeString();
+        
+        // Format source
+        const srcText = rec.source === "live_camera" ? "LIVE CAMERA" : "MANUAL UPLOAD";
+        
+        // Format defects
+        let defectText = "None";
+        if (rec.defects && rec.defects.length > 0) {
+            defectText = rec.defects.map(d => `${d.type} (${Math.round(d.confidence * 100)}%)`).join(", ");
+        }
+        
+        // Tilted ink stamp style
+        const stampClass = rec.status === "PASS" ? "stamp stamp-pass" : "stamp stamp-fail";
+            
+        row.innerHTML = `
+            <td class="font-tech tabular-nums">${time}</td>
+            <td class="font-tech" style="font-size: 0.75rem; font-weight: bold;">${srcText}</td>
+            <td style="color: ${rec.status === 'FAIL' ? 'var(--color-fail-rust-accent)' : 'inherit'}">${defectText}</td>
+            <td><span class="${stampClass}">${rec.status}</span></td>
+        `;
+        
+        tbody.appendChild(row);
+    });
+}
+
+function appendToHistoryTable(rec) {
+    const tbody = document.getElementById("history-table-body");
+    
+    // Remove placeholder row if present
+    const placeholder = tbody.querySelector(".placeholder-row");
+    if (placeholder) {
+        tbody.innerHTML = "";
+    }
+    
+    const row = document.createElement("tr");
+    const time = new Date(rec.timestamp).toLocaleTimeString();
+    const srcText = rec.source === "live_camera" ? "LIVE CAMERA" : "MANUAL UPLOAD";
+    
+    let defectText = "None";
+    if (rec.defects && rec.defects.length > 0) {
+        defectText = rec.defects.map(d => `${d.type} (${Math.round(d.confidence * 100)}%)`).join(", ");
+    }
+    
+    const stampClass = rec.status === "PASS" ? "stamp stamp-pass" : "stamp stamp-fail";
+        
+    row.innerHTML = `
+        <td class="font-tech tabular-nums">${time}</td>
+        <td class="font-tech" style="font-size: 0.75rem; font-weight: bold;">${srcText}</td>
+        <td style="color: ${rec.status === 'FAIL' ? 'var(--color-fail-rust-accent)' : 'inherit'}">${defectText}</td>
+        <td><span class="${stampClass}">${rec.status}</span></td>
+    `;
+    
+    // Insert at top
+    tbody.insertBefore(row, tbody.firstChild);
+    
+    // Cap table size at 50 rows
+    if (tbody.children.length > 50) {
+        tbody.removeChild(tbody.lastChild);
+    }
+}
+
+// 4. WebSocket Client Connection
+function connectWebSocket() {
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const wsUrl = `${protocol}//${window.location.host}/ws/dashboard`;
+    
+    logger("Connecting to WebSocket: " + wsUrl);
+    ws = new WebSocket(wsUrl);
+    
+    ws.onopen = () => {
+        logger("WebSocket connection established.");
+        reconnectInterval = 1000; // Reset backoff
+    };
+    
+    ws.onmessage = (event) => {
+        const payload = JSON.parse(event.data);
+        
+        // Handle connection initialization setup
+        if (payload.event === "connected") {
+            updateStatusBadge("status-mongodb", payload.system_status.mongodb_connected, "Database");
+            updateStatusBadge("status-mqtt", payload.system_status.mqtt_connected, "MQTT Broker");
+            updateStatusBadge("status-inspection", payload.system_status.inspection_running, "Inspection");
+            
+            // Set initial counters (only if currently viewing live camera stats)
+            if (currentHistorySource === "live_camera") {
+                updateMetricCards(payload.counters);
+                updateDefectBreakdown(payload.counters.defect_counts, payload.counters.failed);
+            }
+            return;
+        }
+        
+        // Handle status updates
+        if (payload.event === "status_update") {
+            updateStatusBadge("status-mongodb", payload.system_status.mongodb_connected, "Database");
+            updateStatusBadge("status-mqtt", payload.system_status.mqtt_connected, "MQTT Broker");
+            updateStatusBadge("status-inspection", payload.system_status.inspection_running, "Inspection");
+            return;
+        }
+        
+        // Primary Inspection Loop broadcasts
+        // 1. Update Video Frame Feed
+        if (payload.image_base64) {
+            document.getElementById("live-feed").src = `data:image/jpeg;base64,${payload.image_base64}`;
+        }
+        
+        // 2. Update Metrics
+        if (payload.counters && currentHistorySource === "live_camera") {
+            updateMetricCards(payload.counters);
+            updateDefectBreakdown(payload.counters.defect_counts, payload.counters.failed);
+            
+            // Add point to Trend Chart
+            updateChartData(payload.counters.passed, payload.counters.failed);
+        }
+        
+        // 3. Add to History list
+        if (payload.product_id && currentHistorySource === "live_camera") {
+            const historyRecord = {
+                timestamp: payload.timestamp,
+                product_id: payload.product_id,
+                status: payload.status,
+                defects: payload.defects,
+                source: "live_camera"
+            };
+            appendToHistoryTable(historyRecord);
+        }
+    };
+    
+    ws.onclose = () => {
+        logger("WebSocket disconnected. Attempting reconnect...");
+        scheduleReconnect();
+    };
+    
+    ws.onerror = (err) => {
+        console.error("WebSocket error:", err);
+        ws.close();
+    };
+}
+
+function scheduleReconnect() {
+    setTimeout(() => {
+        reconnectInterval = Math.min(reconnectInterval * 2, maxReconnectInterval);
+        connectWebSocket();
+    }, reconnectInterval);
+}
+
+// 5. Charting Implementation (Clean Gridlines & Restricted Palette)
+function setupTrendChart() {
+    const ctx = document.getElementById("trendChart").getContext("2d");
+    trendChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: chartLabels,
+            datasets: [
+                {
+                    label: 'Passed Items',
+                    borderColor: '#5f9e73',
+                    backgroundColor: 'transparent',
+                    data: chartPassData,
+                    borderWidth: 2,
+                    tension: 0.15,
+                    fill: false,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#5f9e73'
+                },
+                {
+                    label: 'Failed Items',
+                    borderColor: '#d85a30',
+                    backgroundColor: 'transparent',
+                    data: chartFailData,
+                    borderWidth: 2,
+                    tension: 0.15,
+                    fill: false,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#d85a30'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    labels: { color: '#8a8d92', font: { family: 'Oswald, sans-serif', size: 12 } }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { color: '#3a3d42' },
+                    ticks: { color: '#8a8d92', font: { family: 'Share Tech Mono, monospace', size: 11 } }
+                },
+                y: {
+                    grid: { color: '#3a3d42' },
+                    ticks: { color: '#8a8d92', font: { family: 'Share Tech Mono, monospace', size: 11 }, stepSize: 1 }
+                }
+            }
+        }
+    });
+}
+
+function updateChartData(passed, failed) {
+    const nowLabel = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    
+    chartLabels.push(nowLabel);
+    chartPassData.push(passed);
+    chartFailData.push(failed);
+    
+    // Enforce sliding window length
+    if (chartLabels.length > maxChartPoints) {
+        chartLabels.shift();
+        chartPassData.shift();
+        chartFailData.shift();
+    }
+    
+    trendChart.update('none'); // Update without animation for raw performance
+}
+
+// 6. Upload & Modal Handlers
+async function handleUploadClick() {
+    document.getElementById("upload-input").click();
+}
+
+async function uploadImage(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    const btnUpload = document.getElementById("btn-upload");
+    const originalText = btnUpload.innerHTML;
+    
+    // Show loading state
+    btnUpload.disabled = true;
+    btnUpload.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> INGESTING...`;
+    
+    const formData = new FormData();
+    formData.append("file", file);
+    
+    try {
+        const response = await fetch("/inspection/upload", {
+            method: "POST",
+            body: formData
+        });
+        
+        if (!response.ok) {
+            const err = await response.json();
+            alert("Error: " + (err.message || "Failed to inspect image"));
+            return;
+        }
+        
+        const data = await response.json();
+        
+        // Show manual results modal
+        showUploadResultModal(data);
+        
+        // If we are currently viewing the manual uploads history tab, refresh history & stats
+        if (currentHistorySource === "manual_upload") {
+            fetchHistory();
+            fetchAnalyticsSummary();
+        }
+        
+    } catch (e) {
+        console.error("Upload error:", e);
+        alert("Upload failed. Make sure backend is running.");
+    } finally {
+        event.target.value = "";
+        btnUpload.disabled = false;
+        btnUpload.innerHTML = originalText;
+    }
+}
+
+function showUploadResultModal(data) {
+    const modal = document.getElementById("upload-modal");
+    const modalImage = document.getElementById("modal-image");
+    const modalStatus = document.getElementById("modal-status-badge");
+    const modalProductId = document.getElementById("modal-product-id");
+    const modalDefects = document.getElementById("modal-defects-list");
+    
+    // Set image source
+    modalImage.src = `data:image/jpeg;base64,${data.image_base64}`;
+    
+    // Set status badge
+    modalStatus.textContent = data.status;
+    modalStatus.className = data.status === "PASS" ? "stamp stamp-pass" : "stamp stamp-fail";
+    
+    // Set product ID
+    modalProductId.textContent = data.product_id;
+    
+    // Set defects list
+    modalDefects.innerHTML = "";
+    if (!data.defects || data.defects.length === 0) {
+        const li = document.createElement("li");
+        li.textContent = "No Defects Identified (Good Surface)";
+        li.style.color = "var(--color-pass-stamp-text)";
+        li.style.fontFamily = "var(--font-tech)";
+        modalDefects.appendChild(li);
+    } else {
+        data.defects.forEach(d => {
+            const li = document.createElement("li");
+            li.textContent = `${d.type} (Confidence: ${Math.round(d.confidence * 100)}%)`;
+            li.style.fontFamily = "var(--font-tech)";
+            modalDefects.appendChild(li);
+        });
+    }
+    
+    // Unhide modal
+    modal.classList.remove("hidden");
+}
+
+// Close upload modal
+function closeUploadModal() {
+    document.getElementById("upload-modal").classList.add("hidden");
+}
+
+// 7. Helpers & Event Listeners
+function registerEventHandlers() {
+    document.getElementById("btn-start").addEventListener("click", startInspection);
+    document.getElementById("btn-stop").addEventListener("click", stopInspection);
+    document.getElementById("btn-apply-filters").addEventListener("click", fetchHistory);
+    
+    // Upload event listeners
+    document.getElementById("btn-upload").addEventListener("click", handleUploadClick);
+    document.getElementById("upload-input").addEventListener("change", uploadImage);
+    document.getElementById("modal-close").addEventListener("click", closeUploadModal);
+    
+    // Close modal when clicking outside
+    document.getElementById("upload-modal").addEventListener("click", (e) => {
+        if (e.target.id === "upload-modal") {
+            closeUploadModal();
+        }
+    });
+
+    // Navigation screen switcher tabs (2-screen structure)
+    const navButtons = document.querySelectorAll(".screen-switcher .nav-btn");
+    const pageContainers = document.querySelectorAll(".page-container");
+    
+    navButtons.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            navButtons.forEach(b => b.classList.remove("active"));
+            e.currentTarget.classList.add("active");
+            
+            const targetPage = e.currentTarget.dataset.page;
+            pageContainers.forEach(container => {
+                if (container.id === targetPage) {
+                    container.classList.add("active");
+                } else {
+                    container.classList.remove("active");
+                }
+            });
+        });
+    });
+
+    // History source switching tabs
+    const tabButtons = document.querySelectorAll(".history-tabs .tab-btn");
+    tabButtons.forEach(btn => {
+        btn.addEventListener("click", (e) => {
+            tabButtons.forEach(b => b.classList.remove("active"));
+            e.currentTarget.classList.add("active");
+            
+            currentHistorySource = e.currentTarget.dataset.source;
+            
+            // Re-fetch data and analytics based on selected tab source
+            fetchHistory();
+            fetchAnalyticsSummary();
+        });
+    });
+}
+
+// Dynamic logger console output
+function logger(msg) {
+    console.log(`[MetalSense] ${msg}`);
+}

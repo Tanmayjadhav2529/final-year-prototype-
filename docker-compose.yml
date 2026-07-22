@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  # MongoDB Instance
+  mongodb:
+    image: mongo:6.0
+    container_name: metalsense_db
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  # Mosquitto MQTT Broker
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: metalsense_mqtt
+    ports:
+      - "1883:1883"
+      - "9001:9001"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
