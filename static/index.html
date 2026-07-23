@@ -33,6 +33,7 @@
                 <button class="nav-btn" data-page="page-analysis">
                     <i class="fa-solid fa-chart-line"></i> ANALYSIS
                 </button>
+                <div class="tab-indicator" aria-hidden="true"></div>
             </nav>
             
             <!-- Connection & Loop Status Indicators -->
@@ -46,6 +47,15 @@
                 <div class="status-badge" id="status-mqtt">
                     <span class="badge-label">MQTT Broker: OFFLINE</span>
                 </div>
+            </div>
+
+            <!-- Remote Host Override Controls -->
+            <div class="camera-host-controls">
+                <label for="camera-host-input" class="host-label">REMOTE DASHBOARD</label>
+                <input id="camera-host-input" class="host-input" type="text" placeholder="Enter remote IP or host" autocomplete="off">
+                <button id="connect-camera-btn" class="btn btn-primary">CONNECT</button>
+                <button id="disconnect-camera-btn" class="btn btn-secondary" disabled>DISCONNECT</button>
+                <span id="camera-connect-status" class="host-status">Using local host</span>
             </div>
         </header>
 

@@ -4,6 +4,8 @@ let reconnectInterval = 1000;
 let maxReconnectInterval = 30000;
 let trendChart = null;
 let currentHistorySource = "live_camera";
+let cameraHost = null;
+const CAMERA_HOST_STORAGE_KEY = 'cameraHost';
 
 let previousPassed = 0;
 let previousFailed = 0;
@@ -22,10 +24,99 @@ document.addEventListener("DOMContentLoaded", () => {
 function initApp() {
     setupTrendChart();
     registerEventHandlers();
+    loadCameraHost();
+    updateCameraHostUI();
+    updateTabIndicator();
+    window.addEventListener('resize', updateTabIndicator);
     fetchSystemStatus();
     fetchAnalyticsSummary();
     fetchHistory();
     connectWebSocket();
+}
+
+function normalizeCameraHost(value) {
+    if (!value) return null;
+    const host = value.trim().replace(/^https?:\/\//i, '').replace(/^wss?:\/\//i, '').replace(/\/.*/, '').replace(/\/$/, '');
+    return host || null;
+}
+
+function loadCameraHost() {
+    const stored = localStorage.getItem(CAMERA_HOST_STORAGE_KEY);
+    cameraHost = normalizeCameraHost(stored);
+    return cameraHost;
+}
+
+function saveCameraHost(value) {
+    cameraHost = normalizeCameraHost(value);
+    if (cameraHost) {
+        localStorage.setItem(CAMERA_HOST_STORAGE_KEY, cameraHost);
+    } else {
+        localStorage.removeItem(CAMERA_HOST_STORAGE_KEY);
+    }
+    updateCameraHostUI();
+}
+
+function updateCameraHostUI(overrideStatus) {
+    const input = document.getElementById('camera-host-input');
+    const statusText = document.getElementById('camera-connect-status');
+    const disconnectBtn = document.getElementById('disconnect-camera-btn');
+    if (input) input.value = cameraHost || '';
+    if (disconnectBtn) disconnectBtn.disabled = !cameraHost;
+    if (statusText) {
+        if (overrideStatus) {
+            statusText.textContent = overrideStatus;
+        } else if (cameraHost) {
+            statusText.textContent = `Using remote host ${cameraHost}`;
+        } else {
+            statusText.textContent = 'Using local host';
+        }
+    }
+}
+
+function buildApiUrl(path) {
+    if (!path.startsWith('/')) path = '/' + path;
+    return cameraHost ? `http://${cameraHost}${path}` : path;
+}
+
+function buildWsUrl() {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    if (!cameraHost) {
+        return `${protocol}//${window.location.host}/ws/dashboard`;
+    }
+    return `${protocol}//${cameraHost}/ws/dashboard`;
+}
+
+function reconnectWebSocket() {
+    if (ws) {
+        ws.close();
+    }
+    connectWebSocket();
+}
+
+function handleCameraConnect() {
+    const input = document.getElementById('camera-host-input');
+    if (!input) return;
+    const host = normalizeCameraHost(input.value);
+    if (!host) {
+        updateCameraHostUI('Enter a valid host');
+        return;
+    }
+
+    saveCameraHost(host);
+    updateCameraHostUI(`Connecting to ${cameraHost}...`);
+    reconnectWebSocket();
+    fetchSystemStatus();
+    fetchAnalyticsSummary();
+    fetchHistory();
+}
+
+function handleCameraDisconnect() {
+    saveCameraHost(null);
+    updateCameraHostUI('Using local host');
+    reconnectWebSocket();
+    fetchSystemStatus();
+    fetchAnalyticsSummary();
+    fetchHistory();
 }
 
 function triggerStampAnimation(element) {
@@ -92,7 +183,7 @@ function updateStatusBadge(badgeId, isOnline, textPrefix) {
 // 2. HTTP Requests & Controls
 async function fetchSystemStatus() {
     try {
-        const response = await fetch("/inspection/status");
+        const response = await fetch(buildApiUrl('/inspection/status'));
         const data = await response.json();
         
         // Update badges
@@ -112,7 +203,7 @@ async function fetchSystemStatus() {
 
 async function fetchAnalyticsSummary() {
     try {
-        const response = await fetch(`/analytics/summary?source=${currentHistorySource}`);
+        const response = await fetch(buildApiUrl(`/analytics/summary?source=${currentHistorySource}`));
         const data = await response.json();
         updateMetricCards(data);
         updateDefectBreakdown(data.defect_counts, data.failed);
@@ -130,7 +221,7 @@ async function fetchHistory() {
     if (defectFilter) url += `&defect_type=${defectFilter}`;
     
     try {
-        const response = await fetch(url);
+        const response = await fetch(buildApiUrl(url));
         const historyData = await response.json();
         renderHistoryTable(historyData);
     } catch (e) {
@@ -140,7 +231,7 @@ async function fetchHistory() {
 
 async function startInspection() {
     try {
-        const response = await fetch("/inspection/start", { method: "POST" });
+        const response = await fetch(buildApiUrl('/inspection/start'), { method: 'POST' });
         const data = await response.json();
         if (data.status === "started" || data.status === "already_running") {
             document.getElementById("btn-start").disabled = true;
@@ -154,7 +245,7 @@ async function startInspection() {
 
 async function stopInspection() {
     try {
-        const response = await fetch("/inspection/stop", { method: "POST" });
+        const response = await fetch(buildApiUrl('/inspection/stop'), { method: 'POST' });
         const data = await response.json();
         if (data.status === "stopped" || data.status === "already_stopped") {
             document.getElementById("btn-start").disabled = false;
@@ -203,8 +294,15 @@ function updateDefectBreakdown(defectCounts, totalFailed) {
         
         // Update label text in page-analysis
         document.getElementById(`breakdown-${cat.toLowerCase()}-val`).textContent = `${count} (${percent}%)`;
-        // Update progress bar width in page-analysis
-        document.getElementById(`breakdown-${cat.toLowerCase()}-bar`).style.width = `${percent}%`;
+        
+        // Animate progress bar width from previous value to new value
+        const bar = document.getElementById(`breakdown-${cat.toLowerCase()}-bar`);
+        if (bar) {
+            const previousWidth = parseFloat(bar.style.width) || 0;
+            if (previousWidth !== percent) {
+                bar.style.width = `${percent}%`;
+            }
+        }
         
         // Update compact list in page-live
         const liveCountElement = document.getElementById(`live-breakdown-${cat.toLowerCase()}`);
@@ -282,6 +380,11 @@ function appendToHistoryTable(rec) {
     // Insert at top
     tbody.insertBefore(row, tbody.firstChild);
 
+    row.classList.add('row-flash');
+    row.addEventListener('animationend', () => {
+        row.classList.remove('row-flash');
+    }, { once: true });
+
     const newStamp = row.querySelector('.stamp');
     if (newStamp) {
         requestAnimationFrame(() => {
@@ -300,8 +403,7 @@ function appendToHistoryTable(rec) {
 
 // 4. WebSocket Client Connection
 function connectWebSocket() {
-    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const wsUrl = `${protocol}//${window.location.host}/ws/dashboard`;
+    const wsUrl = buildWsUrl();
     
     logger("Connecting to WebSocket: " + wsUrl);
     ws = new WebSocket(wsUrl);
@@ -467,13 +569,13 @@ async function uploadImage(event) {
     
     // Show loading state
     btnUpload.disabled = true;
-    btnUpload.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> INGESTING...`;
+    btnUpload.innerHTML = `<i class="fa-solid fa-spinner spin-loader"></i> INGESTING...`;
     
     const formData = new FormData();
     formData.append("file", file);
     
     try {
-        const response = await fetch("/inspection/upload", {
+        const response = await fetch(buildApiUrl('/inspection/upload'), {
             method: "POST",
             body: formData
         });
@@ -555,6 +657,12 @@ function registerEventHandlers() {
     document.getElementById("btn-stop").addEventListener("click", stopInspection);
     document.getElementById("btn-apply-filters").addEventListener("click", fetchHistory);
     
+    // Camera host override controls
+    const connectButton = document.getElementById("connect-camera-btn");
+    const disconnectButton = document.getElementById("disconnect-camera-btn");
+    if (connectButton) connectButton.addEventListener("click", handleCameraConnect);
+    if (disconnectButton) disconnectButton.addEventListener("click", handleCameraDisconnect);
+
     // Upload event listeners
     document.getElementById("btn-upload").addEventListener("click", handleUploadClick);
     document.getElementById("upload-input").addEventListener("change", uploadImage);
@@ -584,6 +692,8 @@ function registerEventHandlers() {
                     container.classList.remove("active");
                 }
             });
+
+            updateTabIndicator();
         });
     });
 
@@ -601,6 +711,20 @@ function registerEventHandlers() {
             fetchAnalyticsSummary();
         });
     });
+}
+
+function updateTabIndicator() {
+    const activeTab = document.querySelector('.screen-switcher .nav-btn.active');
+    const indicator = document.querySelector('.screen-switcher .tab-indicator');
+    if (!activeTab || !indicator) return;
+
+    const tabRect = activeTab.getBoundingClientRect();
+    const parentRect = activeTab.parentElement.getBoundingClientRect();
+    const left = tabRect.left - parentRect.left;
+    const width = tabRect.width;
+
+    indicator.style.width = `${width}px`;
+    indicator.style.transform = `translateX(${left}px)`;
 }
 
 // Dynamic logger console output

@@ -111,6 +111,24 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
     }
 }
 
+@keyframes spin-rotate {
+    0% {
+        transform: rotate(0deg);
+    }
+    100% {
+        transform: rotate(360deg);
+    }
+}
+
+@keyframes row-flash {
+    0% {
+        background-color: rgba(255, 199, 55, 0.35);
+    }
+    100% {
+        background-color: transparent;
+    }
+}
+
 .stamp {
     display: inline-flex;
     align-items: center;
@@ -157,11 +175,51 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
     animation: live-pulse 1.8s ease-in-out infinite;
 }
 
+.spin-loader {
+    display: inline-block;
+    animation: spin-rotate 1.1s linear infinite;
+}
+
+.row-flash {
+    animation: row-flash 1.4s ease-out both;
+}
+
+.screen-switcher {
+    position: relative;
+}
+
+.tab-indicator {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    height: 3px;
+    width: 0;
+    background: var(--color-fail-rust-accent);
+    border-radius: 999px;
+    transform: translateX(0);
+    transition: transform 0.35s ease-in-out, width 0.35s ease-in-out;
+}
+
+.defect-progress-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+}
+
+.progress-bar-fill {
+    transition: width 1s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
     .stamp-animate,
     .scan-indicator.pulse-active,
-    .gauge-fill.animate-sweep {
+    .gauge-fill.animate-sweep,
+    .spin-loader,
+    .row-flash,
+    .tab-indicator,
+    .progress-bar-fill {
         animation: none !important;
+        transition: none !important;
     }
 }
 
@@ -252,6 +310,48 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 .system-status-indicators {
     display: flex;
     gap: 0.5rem;
+}
+
+.camera-host-controls {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    padding: 0.45rem 0.5rem;
+    border: 1px solid var(--border-default);
+    background: rgba(35, 38, 41, 0.9);
+    border-radius: var(--border-radius);
+}
+
+.camera-host-controls .host-label {
+    font-family: var(--font-tech);
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.08rem;
+}
+
+.camera-host-controls .host-input {
+    min-width: 220px;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid var(--border-default);
+    border-radius: var(--border-radius);
+    background: #15161a;
+    color: var(--color-text-primary);
+    font-family: var(--font-tech);
+    font-size: 0.85rem;
+}
+
+.camera-host-controls .host-input:focus {
+    outline: 1px solid var(--color-fail-rust-accent);
+}
+
+.camera-host-controls .host-status {
+    font-family: var(--font-tech);
+    font-size: 0.75rem;
+    color: var(--color-text-secondary);
+    margin-left: auto;
+    padding-left: 0.5rem;
 }
 
 .status-badge {
