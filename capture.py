@@ -13,12 +13,9 @@ class ImageAcquisition:
         self.mock_mode = os.getenv("MOCK_MODE", "true").lower() == "true"
         logger.info(f"MOCK_MODE resolved to: {self.mock_mode}")
         self.cap = None
-        self.mock_images_dir = os.path.join(os.path.dirname(__file__), "mock_images")
-        self.mock_files = []
-        self.mock_index = 0
 
     def init_capture(self):
-        """Initialize connection to webcam or prepare mock image folder."""
+        """Initialize connection to webcam or prepare synthetic fallback."""
         if not self.mock_mode:
             try:
                 logger.info(f"Attempting to open camera index {self.camera_index}...")
@@ -38,19 +35,6 @@ class ImageAcquisition:
                 logger.warning(f"Webcam initialization error: {e}. Falling back to MOCK MODE.")
                 self.mock_mode = True
 
-        if self.mock_mode:
-            os.makedirs(self.mock_images_dir, exist_ok=True)
-            self._load_mock_files()
-
-    def _load_mock_files(self):
-        """Loads and sorts all image files in mock_images directory."""
-        extensions = ["*.jpg", "*.jpeg", "*.png"]
-        self.mock_files = []
-        for ext in extensions:
-            self.mock_files.extend(glob.glob(os.path.join(self.mock_images_dir, ext)))
-        self.mock_files.sort()
-        logger.info(f"Loaded {len(self.mock_files)} mock images from {self.mock_images_dir}")
-
     def capture_frame(self) -> np.ndarray:
         """Captures a frame from webcam or retrieves a mock image."""
         if not self.mock_mode:
@@ -66,20 +50,7 @@ class ImageAcquisition:
                     self.cap.release()
                     self.cap = None
 
-        # Fallback / Mock Mode:
-        if not self.mock_files:
-            self._load_mock_files()
-
-        if self.mock_files:
-            file_path = self.mock_files[self.mock_index]
-            self.mock_index = (self.mock_index + 1) % len(self.mock_files)
-            frame = cv2.imread(file_path)
-            if frame is not None:
-                return frame
-            else:
-                logger.warning(f"Failed to read mock image: {file_path}")
-
-        # If everything fails (no webcams, no mock files), generate synthetic frame
+        # Fallback / synthetic mode when no webcam is available.
         return self._generate_synthetic_frame()
 
     def _generate_synthetic_frame(self) -> np.ndarray:

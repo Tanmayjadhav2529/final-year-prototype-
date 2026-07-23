@@ -96,64 +96,9 @@ def apply_privacy_blur(img, boxes):
             img[y1:y2, x1:x2] = blurred_roi
     return img
 
-def generate_default_mock_images():
-    """Generates synthetic metal surface JPEG files in the mock_images directory if empty."""
-    import cv2
-    import numpy as np
-    
-    mock_dir = image_acquisition.mock_images_dir
-    os.makedirs(mock_dir, exist_ok=True)
-    
-    # Check if folder is already populated
-    existing_files = [f for f in os.listdir(mock_dir) if f.endswith(('.jpg', '.jpeg', '.png'))]
-    if existing_files:
-        logger.info(f"Mock images directory already has {len(existing_files)} files. Skipping generation.")
-        return
-
-    logger.info("Generating sample metal surface images for mock mode...")
-    
-    # 1. Clean Surface (PASS)
-    clean = np.ones((480, 640, 3), dtype=np.uint8) * 170
-    noise = np.random.randint(-10, 10, size=(480, 640, 3))
-    clean = np.clip(clean + noise, 0, 255).astype(np.uint8)
-    kernel = np.zeros((1, 15))
-    kernel[0, :] = 1.0 / 15.0
-    clean = cv2.filter2D(clean, -1, kernel)
-    cv2.imwrite(os.path.join(mock_dir, "01_clean_surface.jpg"), clean)
-
-    # 2. Scratched Surface (FAIL)
-    scratched = clean.copy()
-    # Draw dark diagonal line simulating a scratch
-    cv2.line(scratched, (100, 120), (520, 380), (45, 45, 45), thickness=3)
-    cv2.imwrite(os.path.join(mock_dir, "02_scratched_surface.jpg"), scratched)
-
-    # 3. Dented Surface (FAIL)
-    dented = clean.copy()
-    # Draw gray circles simulating a dent with light/shadow
-    cv2.circle(dented, (320, 240), 40, (100, 100, 100), thickness=-1)
-    cv2.circle(dented, (315, 235), 35, (145, 145, 145), thickness=-1)
-    cv2.imwrite(os.path.join(mock_dir, "03_dented_surface.jpg"), dented)
-    
-    # 4. Crack Surface (FAIL)
-    crack = clean.copy()
-    # Jagged line
-    pts = [(150, 150), (220, 180), (280, 160), (350, 210), (420, 190)]
-    for i in range(len(pts) - 1):
-        cv2.line(crack, pts[i], pts[i+1], (15, 15, 15), thickness=2)
-    cv2.imwrite(os.path.join(mock_dir, "04_crack_surface.jpg"), crack)
-
-    # 5. Pinhole Surface (FAIL)
-    pinhole = clean.copy()
-    cv2.circle(pinhole, (220, 300), 8, (25, 25, 25), thickness=-1)
-    cv2.circle(pinhole, (400, 150), 6, (20, 20, 20), thickness=-1)
-    cv2.imwrite(os.path.join(mock_dir, "05_pinhole_surface.jpg"), pinhole)
-
-    logger.info("Mock images generated successfully.")
-
 @app.on_event("startup")
 def startup_event():
-    """Startup hook to prepare files and initiate background connections."""
-    generate_default_mock_images()
+    """Startup hook to initiate background connections."""
     # Connect to MongoDB & MQTT broker in the background
     db_manager.start_connection()
     mqtt_manager.start()

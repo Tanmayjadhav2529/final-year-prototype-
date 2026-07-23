@@ -13,8 +13,7 @@ The system is designed to work in **any developer environment** out-of-the-box, 
    - The system maps detected objects above `CONFIDENCE_THRESHOLD` (e.g. phone, cup, person, bottle) to simulated defects (`Scratch`, `Dent`, `Crack`, `Pinhole`) and marks the product status as **FAIL** (BAD).
    - If no objects are in the frame, it is marked as **PASS** (GOOD).
 2. **Webcam Mocking (Auto-detect / Force Mode)**:
-   - If `MOCK_MODE=true` (in `.env`) or if no physical webcam is detected, the capture module automatically cycles through a folder of generated metal surface sample images (`mock_images/`) containing clean sheets and simulated defect markings.
-   - If the folder is empty, the system dynamically generates synthetic brushed-metal textures in memory so it remains fully functional.
+   - If `MOCK_MODE=true` (in `.env`) or if no physical webcam is detected, the capture module uses in-memory synthetic brushed-metal textures with optional simulated defects.
 3. **Database Offline Resiliency**:
    - If MongoDB is offline, the system logs warnings, attempts reconnection with exponential backoff in a background thread, and runs in a degraded offline mode.
    - It caches the last 50 inspection logs in a local in-memory buffer so the **History Logs** and **Stats Summary** tables still work on the dashboard.
@@ -69,7 +68,7 @@ Or run using uvicorn:
 uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
-On start, the server will automatically download `yolov8n.pt` and generate five mock images under `mock_images/` representing clean and defective sheets.
+On start, the server will automatically download `yolov8n.pt` and use in-memory synthetic frames for mock mode when needed.
 
 ### Step 4: Open the Dashboard
 Open your web browser and go to:
