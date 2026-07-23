@@ -5,6 +5,10 @@ let maxReconnectInterval = 30000;
 let trendChart = null;
 let currentHistorySource = "live_camera";
 
+let previousPassed = 0;
+let previousFailed = 0;
+let previousTotal = 0;
+
 // Cumulative counts for Trend Charting
 let chartLabels = [];
 let chartPassData = [];
@@ -24,6 +28,21 @@ function initApp() {
     connectWebSocket();
 }
 
+function triggerStampAnimation(element) {
+    if (!element) return;
+    element.classList.remove('stamp-animate');
+    void element.offsetWidth;
+    element.classList.add('stamp-animate');
+}
+
+function updateMetricStampOnChange(id, previousValue, nextValue) {
+    if (previousValue === nextValue) return;
+    const badge = document.getElementById(id);
+    if (badge) {
+        triggerStampAnimation(badge);
+    }
+}
+
 // 1. Connection Status Badges Update
 function updateStatusBadge(badgeId, isOnline, textPrefix) {
     const badge = document.getElementById(badgeId);
@@ -41,9 +60,13 @@ function updateStatusBadge(badgeId, isOnline, textPrefix) {
             label.textContent = `${textPrefix}: RUNNING`;
             // Update scope status indicator in video bezel
             const scopeStatus = document.getElementById("scope-status");
+            const scanningMarker = document.querySelector('.scan-indicator');
             if (scopeStatus) {
                 scopeStatus.textContent = "STATUS: ACTIVE";
                 scopeStatus.style.color = "var(--color-pass-stamp-text)";
+            }
+            if (scanningMarker) {
+                scanningMarker.classList.add('pulse-active');
             }
         }
     } else {
@@ -54,9 +77,13 @@ function updateStatusBadge(badgeId, isOnline, textPrefix) {
             label.textContent = `${textPrefix}: IDLE`;
             // Update scope status indicator in video bezel
             const scopeStatus = document.getElementById("scope-status");
+            const scanningMarker = document.querySelector('.scan-indicator');
             if (scopeStatus) {
                 scopeStatus.textContent = "STATUS: STANDBY";
                 scopeStatus.style.color = "var(--color-text-secondary)";
+            }
+            if (scanningMarker) {
+                scanningMarker.classList.remove('pulse-active');
             }
         }
     }
@@ -153,8 +180,19 @@ function updateMetricCards(data) {
     if (gaugeFill) {
         const pathLength = 165;
         const offset = pathLength - (parseFloat(rateVal) / 100) * pathLength;
+        gaugeFill.style.setProperty('--gauge-target-offset', offset);
         gaugeFill.style.strokeDashoffset = offset;
+        gaugeFill.classList.remove('animate-sweep');
+        void gaugeFill.offsetWidth;
+        gaugeFill.classList.add('animate-sweep');
     }
+
+    updateMetricStampOnChange('badge-pass-counter', previousPassed, data.passed || 0);
+    updateMetricStampOnChange('badge-fail-counter', previousFailed, data.failed || 0);
+
+    previousPassed = data.passed || 0;
+    previousFailed = data.failed || 0;
+    previousTotal = data.total || 0;
 }
 
 function updateDefectBreakdown(defectCounts, totalFailed) {
@@ -243,6 +281,16 @@ function appendToHistoryTable(rec) {
     
     // Insert at top
     tbody.insertBefore(row, tbody.firstChild);
+
+    const newStamp = row.querySelector('.stamp');
+    if (newStamp) {
+        requestAnimationFrame(() => {
+            newStamp.classList.add('stamp-animate');
+            newStamp.addEventListener('animationend', () => {
+                newStamp.classList.remove('stamp-animate');
+            }, { once: true });
+        });
+    }
     
     // Cap table size at 50 rows
     if (tbody.children.length > 50) {
@@ -470,6 +518,7 @@ function showUploadResultModal(data) {
     // Set status badge
     modalStatus.textContent = data.status;
     modalStatus.className = data.status === "PASS" ? "stamp stamp-pass" : "stamp stamp-fail";
+    triggerStampAnimation(modalStatus);
     
     // Set product ID
     modalProductId.textContent = data.product_id;

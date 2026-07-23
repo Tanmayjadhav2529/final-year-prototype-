@@ -85,6 +85,86 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
     }
 }
 
+@keyframes stamp-slam {
+    0% {
+        opacity: 0;
+        transform: scale(2.2) rotate(-14deg);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1.05) rotate(-3deg);
+    }
+    100% {
+        transform: scale(1) rotate(var(--stamp-end-rotate, 0deg));
+    }
+}
+
+@keyframes live-pulse {
+    0% {
+        box-shadow: 0 0 0 0 rgba(158, 255, 189, 0.45);
+    }
+    50% {
+        box-shadow: 0 0 0 10px rgba(158, 255, 189, 0.08);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(158, 255, 189, 0);
+    }
+}
+
+.stamp {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem 0.75rem;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    font-family: var(--font-display);
+    font-size: 0.75rem;
+    letter-spacing: 0.1rem;
+    text-transform: uppercase;
+    transform-origin: center;
+}
+
+.stamp-animate {
+    animation: stamp-slam 0.45s cubic-bezier(.34,1.4,.64,1) both;
+}
+
+.stamp-pass {
+    color: var(--color-pass-stamp-text);
+    border-color: var(--color-pass-stamp-border);
+    --stamp-end-rotate: 1deg;
+}
+
+.stamp-fail {
+    color: var(--color-fail-stamp-text);
+    border-color: var(--color-fail-stamp-border);
+    --stamp-end-rotate: -2deg;
+}
+
+.scan-indicator {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.85rem;
+    height: 0.85rem;
+    border-radius: 50%;
+    background-color: var(--color-pass-stamp-text);
+    box-shadow: 0 0 0 0 rgba(158, 255, 189, 0.5);
+    transition: background 0.2s ease;
+}
+
+.scan-indicator.pulse-active {
+    animation: live-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .stamp-animate,
+    .scan-indicator.pulse-active,
+    .gauge-fill.animate-sweep {
+        animation: none !important;
+    }
+}
+
 /* Dashboard Container */
 .dashboard-container {
     padding: 1rem;
@@ -361,6 +441,11 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
 
 .gauge-fill {
     transition: stroke-dashoffset var(--transition-speed) ease-out;
+    transform-origin: 50% 50%;
+}
+
+.gauge-fill.animate-sweep {
+    animation: gauge-sweep 1.3s cubic-bezier(.34,1.4,.64,1) forwards;
 }
 
 .gauge-value {
@@ -371,6 +456,17 @@ a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible
     font-size: 1.15rem;
     font-weight: bold;
     color: var(--color-fail-rust-accent);
+}
+
+@keyframes gauge-sweep {
+    from {
+        stroke-dashoffset: 165;
+        transform: rotate(-90deg);
+    }
+    to {
+        stroke-dashoffset: var(--gauge-target-offset, 165);
+        transform: rotate(0deg);
+    }
 }
 
 /* General Panels (Cards) */
