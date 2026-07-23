@@ -3,5 +3,5 @@ __pycache__/
 *.pyo
 *.pyd
 .env
-*.pt
+#*.pt  # allow YOLO weights files to be committed explicitly
 *.log
