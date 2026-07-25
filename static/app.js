@@ -22,7 +22,26 @@ document.addEventListener("DOMContentLoaded", () => {
 });
 
 function initApp() {
-    setupTrendChart();
+    // Defensive chart initialization: guard against missing Chart.js and
+    // ensure layout has settled before creating the chart so it has
+    // non-zero pixel dimensions.
+    if (typeof Chart === "undefined") {
+        console.error("Chart.js failed to load from CDN — check network/internet access");
+    } else {
+        // Double rAF to allow layout / font metrics to settle (prevents
+        // canvas being zero-size when Chart.js initializes).
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                try {
+                    setupTrendChart();
+                } catch (e) {
+                    console.error("Chart init failed:", e);
+                }
+            });
+        });
+    }
+
+    // Continue startup regardless of chart outcome
     registerEventHandlers();
     loadCameraHost();
     updateCameraHostUI();

@@ -11,7 +11,22 @@
     <!-- Stylesheet -->
     <link rel="stylesheet" href="/static/styles.css?v=2">
     <!-- Chart.js for High-Quality Analytics Charts -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Prefer local vendor copy for offline/restricted environments; fallback to CDN if local copy missing -->
+    <script src="/static/vendor/chart.umd.min.js"></script>
+    <script>
+        // If the local vendor script didn't define Chart, attempt CDN fallback
+        if (typeof Chart === 'undefined') {
+            try {
+                var s = document.createElement('script');
+                s.src = 'https://cdn.jsdelivr.net/npm/chart.js';
+                s.onload = function() { console.info('Loaded Chart.js from CDN fallback'); };
+                s.onerror = function() { console.error('Chart.js failed to load from local vendor and CDN fallback.'); };
+                document.head.appendChild(s);
+            } catch (e) {
+                console.error('Chart.js loader fallback failed:', e);
+            }
+        }
+    </script>
 </head>
 <body>
     <div class="dashboard-container">
