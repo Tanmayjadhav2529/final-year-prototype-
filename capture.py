@@ -11,11 +11,25 @@ class ImageAcquisition:
     def __init__(self):
         self.camera_index = int(os.getenv("CAMERA_INDEX", "0"))
         self.mock_mode = os.getenv("MOCK_MODE", "true").lower() == "true"
+        self.resolution = os.getenv("CAMERA_RESOLUTION", "640x480")
         logger.info(f"MOCK_MODE resolved to: {self.mock_mode}")
         self.cap = None
 
-    def init_capture(self):
-        """Initialize connection to webcam or prepare synthetic fallback."""
+    def init_capture(self, mode=None, camera_index=None, resolution=None):
+        """Initialize connection to webcam or prepare synthetic fallback.
+
+        Optional parameters override the instance attributes for an on-the-fly reconfiguration.
+        """
+        if mode is not None:
+            self.mock_mode = (mode == "mock")
+        if camera_index is not None:
+            try:
+                self.camera_index = int(camera_index)
+            except Exception:
+                pass
+        if resolution is not None:
+            self.resolution = resolution
+
         if not self.mock_mode:
             try:
                 logger.info(f"Attempting to open camera index {self.camera_index}...")
@@ -25,11 +39,35 @@ class ImageAcquisition:
                     self.cap = cv2.VideoCapture(self.camera_index, cv2.CAP_DSHOW)
                 else:
                     self.cap = cv2.VideoCapture(self.camera_index)
+
+                # Apply requested resolution if provided in WxH format
+                try:
+                    w, h = [int(x) for x in str(self.resolution).split('x')]
+                    if self.cap is not None and self.cap.isOpened():
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                except Exception:
+                    # Ignore resolution parse errors and proceed
+                    pass
+
                 # Check if open succeeded
                 if not self.cap.isOpened():
                     logger.warning("Physical webcam could not be opened. Falling back to MOCK MODE.")
                     self.mock_mode = True
+                    if self.cap is not None:
+                        try:
+                            self.cap.release()
+                        except Exception:
+                            pass
+                        self.cap = None
                 else:
+                    # If opened, attempt to set resolution again and log
+                    try:
+                        w, h = [int(x) for x in str(self.resolution).split('x')]
+                        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, w)
+                        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, h)
+                    except Exception:
+                        pass
                     logger.info("Physical webcam opened successfully.")
             except Exception as e:
                 logger.warning(f"Webcam initialization error: {e}. Falling back to MOCK MODE.")
@@ -98,5 +136,57 @@ class ImageAcquisition:
             self.cap.release()
             self.cap = None
             logger.info("Physical webcam released.")
+
+    def set_settings(self, mode: str, camera_index: int, resolution: str):
+        self.init_capture(mode=mode, camera_index=camera_index, resolution=resolution)
+
+    def scan_cameras(self, max_index: int = 4):
+        """Scan camera indices and return diagnostics for available devices.
+
+        Returns a list of dicts: { index, backend, opened, width, height, fps }
+        """
+        results = []
+        backends = []
+        if sys.platform.startswith("win"):
+            backends = [(cv2.CAP_DSHOW, 'DSHOW'), (cv2.CAP_MSMF, 'MSMF')]
+        else:
+            backends = [(None, 'DEFAULT')]
+
+        for idx in range(0, max_index + 1):
+            for backend_const, backend_name in backends:
+                cap = None
+                try:
+                    if backend_const is not None:
+                        cap = cv2.VideoCapture(idx, backend_const)
+                    else:
+                        cap = cv2.VideoCapture(idx)
+
+                    opened = cap.isOpened() if cap is not None else False
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) if opened else None
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) if opened else None
+                    fps = float(cap.get(cv2.CAP_PROP_FPS)) if opened else None
+                    results.append({
+                        "index": idx,
+                        "backend": backend_name,
+                        "opened": bool(opened),
+                        "width": width,
+                        "height": height,
+                        "fps": fps
+                    })
+                except Exception as e:
+                    results.append({
+                        "index": idx,
+                        "backend": backend_name,
+                        "opened": False,
+                        "error": str(e)
+                    })
+                finally:
+                    try:
+                        if cap is not None and cap.isOpened():
+                            cap.release()
+                    except Exception:
+                        pass
+
+        return results
 
 image_acquisition = ImageAcquisition()

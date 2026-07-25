@@ -38,6 +38,7 @@ from preprocess import preprocess_frame
 from detector import defect_detector
 from classifier import classify_detections, classify_frame
 from analytics import analytics_tracker, get_db_summary
+import settings as settings_store
 
 app = FastAPI(
     title="Real-Time Metal Surface Inspection API",
@@ -332,7 +333,79 @@ async def get_status():
         "mode": "mock" if image_acquisition.mock_mode else "webcam",
         "mongodb_connected": db_manager.connected,
         "mqtt_connected": mqtt_manager.connected
+        ,"role": os.getenv("LAPTOP_ROLE", "")
     }
+
+
+@app.get("/settings/camera")
+async def get_camera_settings():
+    cfg = settings_store.load_settings()
+    # Provide runtime live status from image_acquisition
+    runtime = {
+        "mode": "mock" if image_acquisition.mock_mode else "live",
+        "camera_index": image_acquisition.camera_index,
+        "resolution": getattr(image_acquisition, "resolution", cfg.get("resolution")),
+        "available_cameras": []
+    }
+    return {**cfg, **runtime}
+
+
+@app.post("/settings/camera")
+async def post_camera_settings(payload: dict):
+    """Apply camera-related settings live and persist them.
+
+    Payload keys: mode (live|mock), camera_index (int), resolution (e.g. "640x480")
+    If inspection is running, the function will stop loops briefly to apply new settings,
+    then attempt to restart the inspection to preserve prior running state.
+    """
+    global inspection_running, stream_task, inference_task
+    try:
+        mode = payload.get("mode") or payload.get("mock_mode") or "live"
+        camera_index = int(payload.get("camera_index", image_acquisition.camera_index))
+        resolution = payload.get("resolution", getattr(image_acquisition, "resolution", "640x480"))
+
+        prev_running = inspection_running
+        if prev_running:
+            # Signal loops to stop and release camera immediately
+            inspection_running = False
+            try:
+                image_acquisition.release()
+            except Exception:
+                pass
+
+        # Apply settings to acquisition device
+        image_acquisition.init_capture(mode=("mock" if mode == "mock" else "live"), camera_index=camera_index, resolution=resolution)
+
+        # Persist settings
+        settings_store.save_settings(mode if mode in ("live", "mock") else ("mock" if mode==True else "live"), camera_index, resolution)
+
+        # Decide result
+        camera_opened = not image_acquisition.mock_mode
+
+        # If inspection was running before, attempt to restart it (respecting fallback to mock)
+        if prev_running:
+            inspection_running = True
+            # Start tasks again
+            stream_task = asyncio.create_task(stream_loop())
+            inference_task = asyncio.create_task(inference_loop())
+
+        return JSONResponse({"status": "ok", "camera_opened": camera_opened, "mode": ("mock" if image_acquisition.mock_mode else "live")})
+    except Exception as e:
+        logger.error(f"Failed to apply camera settings: {e}", exc_info=True)
+        # Ensure we are in a safe mock mode
+        image_acquisition.mock_mode = True
+        settings_store.save_settings("mock", image_acquisition.camera_index, getattr(image_acquisition, "resolution", "640x480"))
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.get("/settings/camera/scan")
+async def scan_cameras():
+    try:
+        results = await asyncio.to_thread(image_acquisition.scan_cameras)
+        return {"results": results}
+    except Exception as e:
+        logger.error(f"Camera scan failed: {e}", exc_info=True)
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 @app.get("/history")
 async def get_history(

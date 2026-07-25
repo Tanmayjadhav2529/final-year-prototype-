@@ -71,6 +71,7 @@
                 <button id="connect-camera-btn" class="btn btn-primary">CONNECT</button>
                 <button id="disconnect-camera-btn" class="btn btn-secondary" disabled>DISCONNECT</button>
                 <span id="camera-connect-status" class="host-status">Using local host</span>
+                <button id="open-settings-btn" class="btn btn-secondary" title="Settings">SETTINGS</button>
             </div>
         </header>
 
@@ -321,6 +322,46 @@
                             <li>None</li>
                         </ul>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Settings Modal -->
+    <div id="settings-modal" class="modal-overlay hidden">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h2><i class="fa-solid fa-cog"></i> CAMERA SETTINGS</h2>
+                <button id="settings-close" class="btn-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="settings-row">
+                    <label class="font-tech">Mode</label>
+                    <select id="settings-mode">
+                        <option value="live">Live Camera</option>
+                        <option value="mock">Mock Mode</option>
+                    </select>
+                </div>
+
+                <div class="settings-row">
+                    <label class="font-tech">Camera</label>
+                    <select id="settings-camera-select"></select>
+                    <button id="settings-scan" class="btn btn-primary">Scan for Cameras</button>
+                </div>
+
+                <div class="settings-row">
+                    <label class="font-tech">Resolution</label>
+                    <select id="settings-resolution">
+                        <option>640x480</option>
+                        <option>1280x720</option>
+                        <option>1920x1080</option>
+                    </select>
+                </div>
+
+                <div class="settings-row" style="margin-top:1rem; display:flex; gap:0.5rem;">
+                    <button id="settings-save" class="btn btn-success">Save</button>
+                    <button id="settings-cancel" class="btn btn-secondary">Cancel</button>
+                    <div id="settings-status" style="margin-left: auto; align-self:center; color:var(--color-text-secondary);"></div>
                 </div>
             </div>
         </div>

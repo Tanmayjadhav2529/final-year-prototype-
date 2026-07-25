@@ -215,6 +215,15 @@ async function fetchSystemStatus() {
         const btnStop = document.getElementById("btn-stop");
         btnStart.disabled = data.running;
         btnStop.disabled = !data.running;
+        // Hide settings for VIEWER role machines
+        const openSettingsBtn = document.getElementById('open-settings-btn');
+        if (openSettingsBtn) {
+            if (data.role && data.role.toUpperCase() === 'VIEWER') {
+                openSettingsBtn.style.display = 'none';
+            } else {
+                openSettingsBtn.style.display = '';
+            }
+        }
     } catch (e) {
         console.error("Error fetching system status:", e);
     }
@@ -670,6 +679,121 @@ function closeUploadModal() {
     document.getElementById("upload-modal").classList.add("hidden");
 }
 
+// Settings modal helpers
+async function fetchSettings() {
+    try {
+        const resp = await fetch(buildApiUrl('/settings/camera'));
+        if (!resp.ok) return null;
+        return await resp.json();
+    } catch (e) {
+        console.error('Failed to fetch settings:', e);
+        return null;
+    }
+}
+
+function openSettingsModal() {
+    const modal = document.getElementById('settings-modal');
+    if (!modal) return;
+    modal.classList.remove('hidden');
+    // populate current settings
+    fetchSettings().then(cfg => {
+        if (!cfg) return;
+        document.getElementById('settings-mode').value = cfg.mode || (cfg.mode === 'mock' ? 'mock' : 'live');
+        document.getElementById('settings-resolution').value = cfg.resolution || '640x480';
+        // populate camera select with current index as placeholder until scan
+        const sel = document.getElementById('settings-camera-select');
+        sel.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = cfg.camera_index || 0;
+        opt.textContent = `Index ${cfg.camera_index || 0}`;
+        sel.appendChild(opt);
+    });
+}
+
+function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.add('hidden');
+}
+
+async function scanForCameras() {
+    const btn = document.getElementById('settings-scan');
+    btn.disabled = true;
+    btn.textContent = 'Scanning...';
+    try {
+        const resp = await fetch(buildApiUrl('/settings/camera/scan'));
+        const data = await resp.json();
+        const sel = document.getElementById('settings-camera-select');
+        sel.innerHTML = '';
+        if (data && data.results && data.results.length > 0) {
+            // Group by index, prefer backends that opened
+            const seen = {};
+            data.results.forEach(r => {
+                const idx = r.index;
+                if (!seen[idx]) seen[idx] = [];
+                seen[idx].push(r);
+            });
+            Object.keys(seen).forEach(idx => {
+                const variants = seen[idx];
+                // Prefer opened entries
+                const opened = variants.find(v => v.opened) || variants[0];
+                const label = opened.opened ? `Index ${idx} — ${opened.width || '?'}x${opened.height || '?'} @ ${Math.round(opened.fps||0)}fps (${opened.backend})` : `Index ${idx} — unavailable (${variants.map(v=>v.backend).join(',')})`;
+                const opt = document.createElement('option');
+                opt.value = idx;
+                opt.textContent = label;
+                sel.appendChild(opt);
+            });
+        } else {
+            const opt = document.createElement('option');
+            opt.value = 0;
+            opt.textContent = 'No cameras found';
+            sel.appendChild(opt);
+        }
+    } catch (e) {
+        console.error('Camera scan failed:', e);
+        alert('Camera scan failed. See console for details.');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = 'Scan for Cameras';
+    }
+}
+
+async function saveSettings() {
+    const mode = document.getElementById('settings-mode').value;
+    const camera_index = parseInt(document.getElementById('settings-camera-select').value || 0);
+    const resolution = document.getElementById('settings-resolution').value;
+    const status = document.getElementById('settings-status');
+    status.textContent = 'Applying...';
+    try {
+        // Post settings and let backend handle stopping/starting if needed
+        const resp = await fetch(buildApiUrl('/settings/camera'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode, camera_index, resolution })
+        });
+        const data = await resp.json();
+        if (!resp.ok) {
+            status.textContent = 'Error applying settings';
+            alert('Failed to save settings: ' + (data.message || JSON.stringify(data)));
+            return;
+        }
+
+        status.textContent = data.camera_opened ? `Active: ${data.mode}` : `Fell back to mock`;
+        // Refresh system status and UI
+        fetchSystemStatus();
+        fetchAnalyticsSummary();
+        fetchHistory();
+        // Update live feed placeholder if switched to mock
+        if (!data.camera_opened) {
+            document.getElementById('live-feed').src = `data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='640' height='480' viewBox='0 0 640 480'><rect width='100%' height='100%' fill='%231b1d21'/><text x='50%' y='50%' font-family='monospace' font-size='16' fill='%238a8d92' text-anchor='middle'>MOCK MODE ACTIVE</text></svg>`;
+        }
+
+        setTimeout(() => { closeSettingsModal(); status.textContent = ''; }, 900);
+    } catch (e) {
+        console.error('Save settings failed:', e);
+        status.textContent = 'Error';
+        alert('Save failed. See console.');
+    }
+}
+
 // 7. Helpers & Event Listeners
 function registerEventHandlers() {
     document.getElementById("btn-start").addEventListener("click", startInspection);
@@ -681,6 +805,18 @@ function registerEventHandlers() {
     const disconnectButton = document.getElementById("disconnect-camera-btn");
     if (connectButton) connectButton.addEventListener("click", handleCameraConnect);
     if (disconnectButton) disconnectButton.addEventListener("click", handleCameraDisconnect);
+
+    // Settings button & modal
+    const openSettingsBtn = document.getElementById('open-settings-btn');
+    if (openSettingsBtn) openSettingsBtn.addEventListener('click', openSettingsModal);
+    const settingsClose = document.getElementById('settings-close');
+    if (settingsClose) settingsClose.addEventListener('click', closeSettingsModal);
+    const settingsCancel = document.getElementById('settings-cancel');
+    if (settingsCancel) settingsCancel.addEventListener('click', closeSettingsModal);
+    const settingsScanBtn = document.getElementById('settings-scan');
+    if (settingsScanBtn) settingsScanBtn.addEventListener('click', scanForCameras);
+    const settingsSaveBtn = document.getElementById('settings-save');
+    if (settingsSaveBtn) settingsSaveBtn.addEventListener('click', saveSettings);
 
     // Upload event listeners
     document.getElementById("btn-upload").addEventListener("click", handleUploadClick);
